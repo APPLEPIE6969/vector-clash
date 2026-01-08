@@ -1,7 +1,6 @@
 const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
-// FIX 1: Add CORS configuration to allow connections from any origin
 const io = require('socket.io')(http, {
     cors: {
         origin: "*",
@@ -28,7 +27,6 @@ const obstacles = [
 io.on('connection', (socket) => {
     console.log('A user connected:', socket.id);
 
-    // Spawn new player
     players[socket.id] = {
         x: Math.random() * 600 + 50,
         y: Math.random() * 600 + 50,
@@ -41,7 +39,6 @@ io.on('connection', (socket) => {
         const player = players[socket.id];
         if (!player) return;
         
-        // Simple movement logic
         const speed = 5;
         let newX = player.x;
         let newY = player.y;
@@ -51,7 +48,6 @@ io.on('connection', (socket) => {
         if (data.keys.a) newX -= speed;
         if (data.keys.d) newX += speed;
 
-        // Wall Collision (Player)
         if (!checkWallCollision(newX, newY, 15)) {
             player.x = newX;
             player.y = newY;
@@ -68,12 +64,12 @@ io.on('connection', (socket) => {
             vy: Math.sin(angle) * 10,
             owner: socket.id,
             bounces: 0,
-            maxBounces: 3
+            maxBounces: 3,
+            dead: false // Mark for deletion
         });
     });
 
     socket.on('disconnect', () => {
-        console.log('User disconnected:', socket.id);
         delete players[socket.id];
     });
 });
@@ -89,53 +85,94 @@ function checkWallCollision(x, y, radius) {
     return false;
 }
 
-// Game Loop (60 FPS)
+// --- PHYSICS LOOP ---
 setInterval(() => {
-    // Update Bullets
+    // We iterate backwards so we can remove bullets easily
     for (let i = bullets.length - 1; i >= 0; i--) {
         let b = bullets[i];
-        b.x += b.vx;
-        b.y += b.vy;
+        
+        // FIX: SUB-STEPPING
+        // Instead of moving 10 pixels at once, we move 2 pixels 5 times.
+        // This ensures we catch the collision exactly when it enters the wall.
+        const steps = 5; 
+        const stepX = b.vx / steps;
+        const stepY = b.vy / steps;
+        let hitWall = false;
 
-        // Bounce Logic
-        if (b.x <= 0 || b.x >= MAP_SIZE) { b.vx *= -1; b.bounces++; }
-        if (b.y <= 0 || b.y >= MAP_SIZE) { b.vy *= -1; b.bounces++; }
+        for (let s = 0; s < steps; s++) {
+            // Move one tiny step
+            b.x += stepX;
+            b.y += stepY;
 
-        for (let obs of obstacles) {
-            if (b.x > obs.x && b.x < obs.x + obs.w &&
-                b.y > obs.y && b.y < obs.y + obs.h) {
-                const overlapX = (b.x - (obs.x + obs.w/2)) / (obs.w/2);
-                const overlapY = (b.y - (obs.y + obs.h/2)) / (obs.h/2);
-                if (Math.abs(overlapX) > Math.abs(overlapY)) b.vx *= -1;
-                else b.vy *= -1;
+            // 1. Check Map Boundaries
+            if (b.x <= 0 || b.x >= MAP_SIZE) { b.vx *= -1; hitWall = true; }
+            else if (b.y <= 0 || b.y >= MAP_SIZE) { b.vy *= -1; hitWall = true; }
+            
+            if (hitWall) {
                 b.bounces++;
+                break; // Stop stepping if we hit boundary
             }
+
+            // 2. Check Obstacles
+            for (let obs of obstacles) {
+                // AABB Collision Detection (Point vs Rectangle)
+                if (b.x > obs.x && b.x < obs.x + obs.w &&
+                    b.y > obs.y && b.y < obs.y + obs.h) {
+                    
+                    // We hit a wall! 
+                    // To find out WHICH side, we look at where we were 1 step ago.
+                    const prevX = b.x - stepX;
+                    const prevY = b.y - stepY;
+
+                    // Was I within the horizontal range before?
+                    const wasInXRange = prevX > obs.x && prevX < obs.x + obs.w;
+                    // Was I within the vertical range before?
+                    const wasInYRange = prevY > obs.y && prevY < obs.y + obs.h;
+
+                    if (wasInXRange) {
+                        // If I was in X range, I must have hit the Top or Bottom
+                        b.vy *= -1;
+                    } else if (wasInYRange) {
+                        // If I was in Y range, I must have hit the Left or Right
+                        b.vx *= -1;
+                    } else {
+                        // Hit a corner perfectly
+                        b.vx *= -1;
+                        b.vy *= -1;
+                    }
+
+                    // Push the bullet back to previous safe spot so it doesn't get stuck
+                    b.x = prevX;
+                    b.y = prevY;
+                    
+                    hitWall = true;
+                    b.bounces++;
+                    break; 
+                }
+            }
+            if (hitWall) break; // Stop stepping if we hit an obstacle
         }
 
-        // FIX 2: Safely handle bullet removal
-        let bulletRemoved = false;
-        
-        // Check Player Hits
-        for (let id in players) {
-            if (id !== b.owner) {
-                const p = players[id];
-                const dist = Math.sqrt((b.x - p.x)**2 + (b.y - p.y)**2);
-                if (dist < 20) {
-                    // Respawn player
-                    p.x = Math.random() * 600 + 50;
-                    p.y = Math.random() * 600 + 50;
-                    if (players[b.owner]) players[b.owner].score++;
-                    
-                    bullets.splice(i, 1);
-                    bulletRemoved = true;
-                    break; // Stop checking players for this bullet
+        // 3. Check Player Hits
+        if (!b.dead) {
+            for (let id in players) {
+                if (id !== b.owner) {
+                    const p = players[id];
+                    const dist = Math.sqrt((b.x - p.x)**2 + (b.y - p.y)**2);
+                    if (dist < 20) {
+                        // Respawn Player
+                        p.x = Math.random() * 600 + 50;
+                        p.y = Math.random() * 600 + 50;
+                        if (players[b.owner]) players[b.owner].score++;
+                        b.dead = true;
+                        break;
+                    }
                 }
             }
         }
 
-        if (bulletRemoved) continue; // Skip max bounce check if already removed
-
-        if (b.bounces > b.maxBounces) {
+        // Remove bullet if dead or too many bounces
+        if (b.dead || b.bounces > b.maxBounces) {
             bullets.splice(i, 1);
         }
     }
