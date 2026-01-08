@@ -2,8 +2,8 @@ import * as THREE from 'three';
 
 // --- 1. SETUP SCENE ---
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x111111); // Dark background
-scene.fog = new THREE.Fog(0x111111, 100, 500); // Fog starts closer now
+scene.background = new THREE.Color(0x111111);
+scene.fog = new THREE.Fog(0x111111, 100, 500);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -12,7 +12,7 @@ renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 
 // Lights
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); // Brighter ambient
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
 scene.add(ambientLight);
 
 const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
@@ -20,7 +20,7 @@ dirLight.position.set(200, 500, 300);
 dirLight.castShadow = true;
 scene.add(dirLight);
 
-// Floor (Grid)
+// Floor
 const gridHelper = new THREE.GridHelper(2000, 100, 0x00ffff, 0x222222);
 scene.add(gridHelper);
 
@@ -31,37 +31,35 @@ floor.rotation.x = -Math.PI / 2;
 floor.receiveShadow = true;
 scene.add(floor);
 
-// --- 2. ASSET GENERATOR (THE ROBOT) ---
+// --- 2. ASSET GENERATOR ---
 function createSciFiSoldier(mainColor) {
     const group = new THREE.Group();
-
-    // Scale the whole character UP so it's easier to see
-    group.scale.set(2.5, 2.5, 2.5); 
+    group.scale.set(2.5, 2.5, 2.5);
 
     const armorMat = new THREE.MeshStandardMaterial({ color: mainColor, roughness: 0.2, metalness: 0.1 });
-    const suitMat = new THREE.MeshStandardMaterial({ color: 0x222222 }); // Dark grey undersuit
-    const glowMat = new THREE.MeshBasicMaterial({ color: 0x00ffff }); // Glowing Teal
+    const suitMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+    const glowMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
 
-    // 1. Torso
+    // Torso
     const torso = new THREE.Mesh(new THREE.BoxGeometry(10, 12, 6), armorMat);
     torso.position.y = 14; 
     torso.castShadow = true;
     group.add(torso);
 
-    // 2. Head
+    // Head
     const head = new THREE.Mesh(new THREE.BoxGeometry(6, 6, 6), armorMat);
     head.position.y = 22;
     group.add(head);
 
     // Visor
     const visor = new THREE.Mesh(new THREE.BoxGeometry(5, 2, 5), glowMat);
-    visor.position.set(0, 22, 1.5); // Stick out front
+    visor.position.set(0, 22, 1.5); 
     group.add(visor);
 
-    // 3. Arms
+    // Arms
     const rArm = new THREE.Mesh(new THREE.BoxGeometry(3, 10, 3), armorMat);
     rArm.position.set(7, 14, 2);
-    rArm.rotation.x = -Math.PI / 2; // Point forward
+    rArm.rotation.x = -Math.PI / 2; 
     group.add(rArm);
 
     const lArm = new THREE.Mesh(new THREE.BoxGeometry(3, 10, 3), armorMat);
@@ -69,12 +67,12 @@ function createSciFiSoldier(mainColor) {
     lArm.rotation.x = -Math.PI / 2;
     group.add(lArm);
 
-    // 4. Gun
+    // Gun
     const gun = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 8), suitMat);
     gun.position.set(7, 14, 6);
     group.add(gun);
 
-    // 5. Legs (For Animation)
+    // Legs
     const legGeo = new THREE.BoxGeometry(3.5, 10, 4);
     const leftLeg = new THREE.Mesh(legGeo, armorMat);
     leftLeg.position.set(-3, 5, 0);
@@ -88,7 +86,7 @@ function createSciFiSoldier(mainColor) {
     return group;
 }
 
-// --- 3. NETWORK & STATE ---
+// --- 3. NETWORK ---
 // @ts-ignore
 const socket = io({ transports: ['websocket', 'polling'] });
 
@@ -97,7 +95,6 @@ let bullets = [];
 let meshes = { players: {}, bullets: [], obstacles: [] };
 let myId = null;
 
-// Input
 const keys = { w: false, a: false, s: false, d: false };
 let mouseX = 0;
 let mouseY = 0;
@@ -115,7 +112,6 @@ socket.on('state', (state) => {
     players = state.players;
     bullets = state.bullets;
     
-    // Create Obstacles (One time)
     if (meshes.obstacles.length === 0 && state.obstacles.length > 0) {
         state.obstacles.forEach(obs => {
             const geometry = new THREE.BoxGeometry(obs.w, 80, obs.h);
@@ -137,7 +133,6 @@ function animate() {
     requestAnimationFrame(animate);
     const now = Date.now();
 
-    // Update Players
     for (let id in meshes.players) {
         if (!players[id]) {
             scene.remove(meshes.players[id]);
@@ -155,12 +150,15 @@ function animate() {
             meshes.players[id] = group;
         }
 
-        // Move
         group.position.x = p.x;
         group.position.z = p.y;
-        group.rotation.y = -p.angle;
+        
+        // --- FIX IS HERE ---
+        // We added "- Math.PI / 2" to rotate it 90 degrees Left.
+        // If it's facing the wrong way still, change it to "+ Math.PI / 2"
+        group.rotation.y = -p.angle - Math.PI / 2;
+        // -------------------
 
-        // Walk Animation
         const isMoving = (group.userData.lastX !== p.x || group.userData.lastZ !== p.y);
         if (isMoving) {
             group.userData.leftLeg.rotation.x = Math.sin(now * 0.015) * 0.6;
@@ -173,7 +171,6 @@ function animate() {
         group.userData.lastZ = p.y;
     }
 
-    // Update Bullets
     meshes.bullets.forEach(b => scene.remove(b));
     meshes.bullets = [];
 
@@ -186,12 +183,10 @@ function animate() {
         meshes.bullets.push(mesh);
     });
 
-    // CAMERA FOLLOW (THE FIX)
     if (myId && players[myId]) {
         const p = players[myId];
-        // Much Closer Zoom
-        const cameraHeight = 120; // Lower = Closer to ground
-        const cameraDistance = 100; // Lower = Closer to player
+        const cameraHeight = 120; 
+        const cameraDistance = 100;
         
         camera.position.x = p.x;
         camera.position.y = cameraHeight;
