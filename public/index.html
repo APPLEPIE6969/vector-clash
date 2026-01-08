@@ -5,17 +5,39 @@
     <title>Vector Clash 3D</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; }
+        
+        /* UI Overlay */
         #ui {
             position: absolute;
             top: 20px;
             left: 20px;
             color: white;
-            font-family: Arial, sans-serif;
-            pointer-events: none;
+            font-family: 'Courier New', Courier, monospace;
+            pointer-events: none; /* Let clicks pass through to game */
             text-shadow: 2px 2px 0 #000;
         }
+
+        /* Settings Box */
+        #settings {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            border: 2px solid #00ffff;
+            padding: 15px;
+            color: white;
+            font-family: 'Courier New', Courier, monospace;
+            border-radius: 8px;
+            pointer-events: auto; /* Enable clicking on slider */
+        }
+        
+        /* Slider Styling */
+        input[type=range] {
+            width: 100%;
+            cursor: pointer;
+        }
     </style>
-    <!-- Import Three.js from a CDN -->
+    <!-- Import Three.js -->
     <script type="importmap">
         {
             "imports": {
@@ -29,9 +51,14 @@
         <h1>VECTOR CLASH 3D</h1>
         <p>WASD to Move | Mouse to Aim | Click to Shoot</p>
     </div>
+
+    <!-- NEW FOV SLIDER -->
+    <div id="settings">
+        <label>FOV: <span id="fovValue">80</span></label><br>
+        <input type="range" id="fovSlider" min="60" max="110" value="80">
+    </div>
     
     <script src="/socket.io/socket.io.js"></script>
-    <!-- Note type="module" allows us to use modern 3D imports -->
     <script type="module" src="game.js"></script>
 </body>
 </html>
