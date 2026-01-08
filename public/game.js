@@ -1,18 +1,47 @@
-// FIX 1: Force websocket transport to fix Render connection issues
-const socket = io({
-    transports: ['websocket', 'polling']
-});
+import * as THREE from 'three';
 
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
+// 1. SETUP THREE.JS SCENE
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x111111); // Dark gray sky
+scene.fog = new THREE.Fog(0x111111, 200, 1000); // Distance fog
 
-canvas.width = 800;
-canvas.height = 800;
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
 
-let players = {};
+// Lights
+const ambientLight = new THREE.AmbientLight(0x404040); // Soft white light
+scene.add(ambientLight);
+const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+dirLight.position.set(500, 1000, 500);
+dirLight.castShadow = true;
+scene.add(dirLight);
+
+// The Floor
+const floorGeo = new THREE.PlaneGeometry(1000, 1000);
+const floorMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.8 });
+const floor = new THREE.Mesh(floorGeo, floorMat);
+floor.rotation.x = -Math.PI / 2; // Lay flat
+floor.position.set(400, 0, 400); // Center matches server map center (roughly)
+scene.add(floor);
+
+// 2. NETWORK & STATE
+// @ts-ignore
+const socket = io({ transports: ['websocket', 'polling'] });
+
+let players = {}; // Server data
 let bullets = [];
 let obstacles = [];
 let myId = null;
+
+// Store 3D Meshes here to update them
+const meshes = {
+    players: {},
+    bullets: [],
+    obstacles: []
+};
 
 // Input State
 const keys = { w: false, a: false, s: false, d: false };
@@ -22,145 +51,126 @@ let mouseY = 0;
 // Listeners
 document.addEventListener('keydown', (e) => { if (keys.hasOwnProperty(e.key)) keys[e.key] = true; });
 document.addEventListener('keyup', (e) => { if (keys.hasOwnProperty(e.key)) keys[e.key] = false; });
-canvas.addEventListener('mousemove', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    mouseX = e.clientX - rect.left;
-    mouseY = e.clientY - rect.top;
+document.addEventListener('mousemove', (e) => {
+    // We need 3D mouse position, but for now let's keep it simple relative to screen center
+    mouseX = e.clientX;
+    mouseY = e.clientY;
 });
-canvas.addEventListener('mousedown', () => {
-    const me = players[socket.id];
-    if (me) {
-        const angle = Math.atan2(mouseY - me.y, mouseX - me.x);
-        socket.emit('shoot', angle);
-    }
+document.addEventListener('mousedown', () => {
+    // Calculate aiming angle based on screen center (Third Person style)
+    const angle = Math.atan2(mouseY - (window.innerHeight/2), mouseX - (window.innerWidth/2));
+    socket.emit('shoot', angle);
 });
 
 // Sync
-socket.on('connect', () => { 
-    console.log("Connected to server with ID:", socket.id);
-    myId = socket.id; 
-});
-
+socket.on('connect', () => { myId = socket.id; });
 socket.on('state', (state) => {
     players = state.players;
     bullets = state.bullets;
-    obstacles = state.obstacles;
+    
+    // Create Obstacles only once
+    if (meshes.obstacles.length === 0 && state.obstacles.length > 0) {
+        state.obstacles.forEach(obs => {
+            // Server has x,y,w,h. We need 3D Box.
+            // Server X/Y is Top-Left. Three.js is Center.
+            const geometry = new THREE.BoxGeometry(obs.w, 50, obs.h);
+            const material = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x004444 });
+            const mesh = new THREE.Mesh(geometry, material);
+            
+            mesh.position.set(obs.x + obs.w/2, 25, obs.y + obs.h/2);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            
+            scene.add(mesh);
+            meshes.obstacles.push(mesh);
+        });
+    }
 });
 
-// Render Loop
-function draw() {
-    // 1. Clear Screen
-    ctx.fillStyle = '#050505';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+// 3. RENDER LOOP
+function animate() {
+    requestAnimationFrame(animate);
 
-    // FIX 2: Check if connected. If not, show "Loading..."
-    if (obstacles.length === 0) {
-        ctx.fillStyle = 'white';
-        ctx.font = '30px Arial';
-        ctx.fillText('Connecting to Server...', 250, 400);
-        requestAnimationFrame(draw);
-        return;
+    // --- UPDATE PLAYERS ---
+    // 1. Remove disconnected players
+    for (let id in meshes.players) {
+        if (!players[id]) {
+            scene.remove(meshes.players[id]);
+            delete meshes.players[id];
+        }
     }
 
-    // 2. Draw Obstacles (Neon Walls)
-    ctx.fillStyle = '#222';
-    ctx.strokeStyle = '#00ffff';
-    ctx.lineWidth = 2;
-    obstacles.forEach(obs => {
-        ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
-        ctx.strokeRect(obs.x, obs.y, obs.w, obs.h);
-    });
-
-    // 3. Draw Predictive Sight (The Hook!)
-    if (players[myId]) {
-        drawPrediction(players[myId]);
-    }
-
-    // 4. Draw Bullets
-    bullets.forEach(b => {
-        ctx.beginPath();
-        ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
-        ctx.fillStyle = '#ff00ff';
-        ctx.fill();
-        ctx.shadowBlur = 10;
-        ctx.shadowColor = '#ff00ff';
-    });
-    ctx.shadowBlur = 0;
-
-    // 5. Draw Players
+    // 2. Add/Update connected players
     for (let id in players) {
         const p = players[id];
-        ctx.save();
-        ctx.translate(p.x, p.y);
-        ctx.rotate(p.angle);
+        let mesh = meshes.players[id];
+
+        // Create if doesn't exist
+        if (!mesh) {
+            const geometry = new THREE.CapsuleGeometry(15, 30, 4, 8);
+            const material = new THREE.MeshStandardMaterial({ color: p.color });
+            mesh = new THREE.Mesh(geometry, material);
+            scene.add(mesh);
+            meshes.players[id] = mesh;
+        }
+
+        // Update Position (Map 2D X/Y to 3D X/Z)
+        // Lerp for smoothness (optional, using direct set for now)
+        mesh.position.x = p.x;
+        mesh.position.z = p.y;
+        mesh.position.y = 15; // Half height
         
-        // Player Body
-        ctx.beginPath();
-        ctx.rect(-15, -15, 30, 30);
-        ctx.fillStyle = p.color;
-        ctx.fill();
-        ctx.stroke();
+        // Rotate body to face aim
+        mesh.rotation.y = -p.angle; // Server angle might be inverted for 3D
         
-        ctx.restore();
+        // Update Color if changed
+        mesh.material.color.set(p.color);
     }
 
-    // 6. Send Input
-    if (myId) {
-        const me = players[myId];
-        const angle = Math.atan2(mouseY - me.y, mouseX - me.x);
+    // --- UPDATE BULLETS ---
+    // Clear old bullets from scene
+    meshes.bullets.forEach(b => scene.remove(b));
+    meshes.bullets = [];
+
+    // Create new bullets
+    bullets.forEach(b => {
+        const geometry = new THREE.SphereGeometry(5);
+        const material = new THREE.MeshBasicMaterial({ color: 0xff00ff });
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set(b.x, 15, b.y);
+        scene.add(mesh);
+        meshes.bullets.push(mesh);
+    });
+
+    // --- CAMERA FOLLOW ---
+    if (myId && players[myId]) {
+        const p = players[myId];
+        // "Fortnite-ish" Camera: Behind and above
+        const offsetHeight = 300; // How high up
+        const offsetDistance = 200; // How far back (isometric style)
+        
+        camera.position.x = p.x;
+        camera.position.y = offsetHeight;
+        camera.position.z = p.y + offsetDistance;
+        camera.lookAt(p.x, 0, p.y);
+
+        // Send Input
+        // Calculate angle from center of screen (where player is) to mouse
+        const dx = mouseX - (window.innerWidth / 2);
+        const dy = mouseY - (window.innerHeight / 2);
+        const angle = Math.atan2(dy, dx);
+        
         socket.emit('input', { keys, angle });
     }
 
-    requestAnimationFrame(draw);
+    renderer.render(scene, camera);
 }
 
-// The Predictive Line Logic
-function drawPrediction(player) {
-    let x = player.x;
-    let y = player.y;
-    let angle = Math.atan2(mouseY - y, mouseX - x);
-    let vx = Math.cos(angle);
-    let vy = Math.sin(angle);
+// Handle Window Resize
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
 
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-    ctx.setLineDash([5, 5]);
-
-    // Simulate 3 bounces
-    for (let i = 0; i < 3; i++) {
-        let dist = 0;
-        const maxDist = 300;
-        let hit = false;
-
-        while (dist < maxDist) {
-            x += vx * 5;
-            y += vy * 5;
-            dist += 5;
-
-            // Check collision locally
-            for (let obs of obstacles) {
-                if (x > obs.x && x < obs.x + obs.w && y > obs.y && y < obs.y + obs.h) {
-                    const overlapX = (x - (obs.x + obs.w/2)) / (obs.w/2);
-                    const overlapY = (y - (obs.y + obs.h/2)) / (obs.h/2);
-                    
-                    if (Math.abs(overlapX) > Math.abs(overlapY)) vx *= -1;
-                    else vy *= -1;
-
-                    hit = true;
-                    break;
-                }
-            }
-            if (hit) break;
-            
-            if (x <= 0 || x >= 800) { vx *= -1; hit = true; break; }
-            if (y <= 0 || y >= 800) { vy *= -1; hit = true; break; }
-        }
-        
-        ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-    ctx.setLineDash([]);
-}
-
-draw();
+animate();
