@@ -5,7 +5,8 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111111);
 scene.fog = new THREE.Fog(0x111111, 100, 500);
 
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+// Default FOV is 80
+const camera = new THREE.PerspectiveCamera(80, window.innerWidth / window.innerHeight, 0.1, 2000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -153,11 +154,8 @@ function animate() {
         group.position.x = p.x;
         group.position.z = p.y;
         
-        // --- FIX IS HERE ---
-        // We added "- Math.PI / 2" to rotate it 90 degrees Left.
-        // If it's facing the wrong way still, change it to "+ Math.PI / 2"
+        // Rotation Fix
         group.rotation.y = -p.angle - Math.PI / 2;
-        // -------------------
 
         const isMoving = (group.userData.lastX !== p.x || group.userData.lastZ !== p.y);
         if (isMoving) {
@@ -201,6 +199,22 @@ function animate() {
 
     renderer.render(scene, camera);
 }
+
+// --- FOV CHANGER LOGIC ---
+const fovSlider = document.getElementById('fovSlider');
+const fovValue = document.getElementById('fovValue');
+
+fovSlider.addEventListener('input', (e) => {
+    // 1. Get new value
+    const newFov = parseInt(e.target.value);
+    
+    // 2. Update text
+    fovValue.innerText = newFov;
+
+    // 3. Update Camera
+    camera.fov = newFov;
+    camera.updateProjectionMatrix(); // Required by Three.js to apply changes
+});
 
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
