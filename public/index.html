@@ -4,58 +4,81 @@
     <meta charset="UTF-8">
     <title>Vector Clash 3D</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; }
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Courier New', Courier, monospace; }
         
-        /* UI Overlay */
-        #ui {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            color: white;
-            font-family: 'Courier New', Courier, monospace;
-            pointer-events: none; /* Let clicks pass through to game */
-            text-shadow: 2px 2px 0 #000;
+        #ui { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        
+        /* LOGIN SCREEN */
+        #loginScreen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            pointer-events: auto; z-index: 100;
+        }
+        input { padding: 10px; font-size: 20px; text-align: center; border: 2px solid #00ffff; background: #000; color: white; outline: none; margin-bottom: 20px; }
+        button { padding: 10px 30px; font-size: 20px; background: #00ffff; border: none; cursor: pointer; font-weight: bold; }
+        button:hover { background: white; }
+
+        /* HUD ELEMENTS */
+        #hud { display: none; } /* Hidden until logged in */
+
+        #settings {
+            position: absolute; top: 20px; right: 20px;
+            background: rgba(0, 0, 0, 0.7); border: 2px solid #00ffff;
+            padding: 10px; color: white; border-radius: 8px; pointer-events: auto;
+        }
+        
+        #statsBox {
+            position: absolute; bottom: 20px; left: 20px;
+            color: #00ffff; font-size: 24px; text-shadow: 2px 2px 0 #000;
         }
 
-        /* Settings Box */
-        #settings {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.7);
-            border: 2px solid #00ffff;
-            padding: 15px;
-            color: white;
-            font-family: 'Courier New', Courier, monospace;
-            border-radius: 8px;
-            pointer-events: auto; /* Enable clicking on slider */
+        #leaderboard {
+            position: absolute; top: 20px; left: 20px;
+            background: rgba(0, 0, 0, 0.5);
+            color: white; padding: 10px; border-radius: 5px;
+            min-width: 200px;
         }
+        .lb-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .lb-name { color: #fff; }
+        .lb-score { color: #00ffff; font-weight: bold; }
         
-        /* Slider Styling */
-        input[type=range] {
-            width: 100%;
-            cursor: pointer;
-        }
+        input[type=range] { width: 100%; cursor: pointer; }
     </style>
-    <!-- Import Three.js -->
     <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
-            }
-        }
+        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
     </script>
 </head>
 <body>
-    <div id="ui">
-        <h1>VECTOR CLASH 3D</h1>
-        <p>WASD to Move | Mouse to Aim | Click to Shoot</p>
+    <!-- LOGIN OVERLAY -->
+    <div id="loginScreen">
+        <h1 style="color: #00ffff; font-size: 60px; margin-bottom: 10px;">VECTOR CLASH</h1>
+        <input type="text" id="usernameInput" placeholder="ENTER NAME" maxlength="12">
+        <button id="playBtn">PLAY GAME</button>
     </div>
 
-    <!-- NEW FOV SLIDER -->
-    <div id="settings">
-        <label>FOV: <span id="fovValue">80</span></label><br>
-        <input type="range" id="fovSlider" min="60" max="110" value="80">
+    <!-- GAME UI -->
+    <div id="ui">
+        <div id="hud">
+            <!-- LEADERBOARD -->
+            <div id="leaderboard">
+                <div style="border-bottom: 1px solid white; margin-bottom: 5px;">TOP KILLERS</div>
+                <div id="lbContent"></div>
+            </div>
+
+            <!-- STATS -->
+            <div id="statsBox">
+                KILLS: <span id="kDisplay">0</span> <br>
+                DEATHS: <span id="dDisplay">0</span> <br>
+                KDR: <span id="rDisplay">0.0</span>
+            </div>
+
+            <!-- SETTINGS -->
+            <div id="settings">
+                <label>FOV: <span id="fovValue">80</span></label><br>
+                <input type="range" id="fovSlider" min="60" max="110" value="80">
+            </div>
+        </div>
     </div>
     
     <script src="/socket.io/socket.io.js"></script>
