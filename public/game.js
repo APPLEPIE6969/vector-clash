@@ -1,98 +1,201 @@
 import * as THREE from 'three';
 
-// 1. SETUP THREE.JS SCENE
+// --- 1. SETUP SCENE ---
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x111111); // Dark gray sky
-scene.fog = new THREE.Fog(0x111111, 200, 1000); // Distance fog
+scene.background = new THREE.Color(0x151520); // Dark Sci-Fi Blue/Grey
+scene.fog = new THREE.Fog(0x151520, 200, 900);
 
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
 document.body.appendChild(renderer.domElement);
 
-// Lights
-const ambientLight = new THREE.AmbientLight(0x404040); // Soft white light
+// Lighting for that "Studio" look
+const ambientLight = new THREE.AmbientLight(0x404040, 1.5); // Brighter ambient
 scene.add(ambientLight);
-const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-dirLight.position.set(500, 1000, 500);
+
+const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+dirLight.position.set(200, 500, 300);
 dirLight.castShadow = true;
+dirLight.shadow.mapSize.width = 2048;
+dirLight.shadow.mapSize.height = 2048;
 scene.add(dirLight);
 
-// The Floor
-const floorGeo = new THREE.PlaneGeometry(1000, 1000);
-const floorMat = new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 0.8 });
+// Neon Ground
+const gridHelper = new THREE.GridHelper(2000, 100, 0x00ffff, 0x222222);
+scene.add(gridHelper);
+
+const floorGeo = new THREE.PlaneGeometry(2000, 2000);
+const floorMat = new THREE.MeshStandardMaterial({ 
+    color: 0x0a0a0a, 
+    roughness: 0.1, 
+    metalness: 0.5 
+});
 const floor = new THREE.Mesh(floorGeo, floorMat);
-floor.rotation.x = -Math.PI / 2; // Lay flat
-floor.position.set(400, 0, 400); // Center matches server map center (roughly)
+floor.rotation.x = -Math.PI / 2;
+floor.receiveShadow = true;
 scene.add(floor);
 
-// 2. NETWORK & STATE
+// --- 2. ASSET GENERATOR (THE ROBOT BUILDER) ---
+function createSciFiSoldier(mainColor) {
+    const group = new THREE.Group();
+
+    // Materials
+    // The "Armor" uses the player's random color
+    const armorMat = new THREE.MeshStandardMaterial({ 
+        color: mainColor, 
+        roughness: 0.3,
+        metalness: 0.1,
+        flatShading: true 
+    });
+    
+    // The "Joints/Undersuit" (Dark Grey)
+    const suitMat = new THREE.MeshStandardMaterial({ color: 0x333333, flatShading: true });
+    
+    // The "Energy/Glow" (Teal/Cyan like the picture)
+    const glowMat = new THREE.MeshStandardMaterial({ 
+        color: 0x00ffff, 
+        emissive: 0x00ffff, 
+        emissiveIntensity: 0.5 
+    });
+    
+    // The "Visor" (Black Glass)
+    const visorMat = new THREE.MeshStandardMaterial({ 
+        color: 0x111111, 
+        roughness: 0.0, 
+        metalness: 0.8 
+    });
+
+    // --- BODY PARTS ---
+    
+    // 1. Torso
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(14, 16, 8), armorMat);
+    torso.position.y = 20;
+    torso.castShadow = true;
+    group.add(torso);
+
+    // 2. Head
+    const headGroup = new THREE.Group();
+    const headMesh = new THREE.Mesh(new THREE.BoxGeometry(10, 10, 10), armorMat);
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(8, 4, 10.5), visorMat); // Visor sticking out slightly
+    visor.position.set(0, 1, 0);
+    headGroup.add(headMesh);
+    headGroup.add(visor);
+    headGroup.position.y = 31; // On top of torso
+    group.add(headGroup);
+
+    // 3. Backpack (The "Battery")
+    const backpack = new THREE.Mesh(new THREE.BoxGeometry(10, 12, 4), suitMat);
+    backpack.position.set(0, 20, -6);
+    // Add a glowing strip on backpack
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(6, 2, 4.5), glowMat);
+    strip.position.set(0, 20, -6);
+    group.add(backpack);
+    group.add(strip);
+
+    // 4. Arms
+    // Right Arm (Holding Gun)
+    const rArm = new THREE.Mesh(new THREE.BoxGeometry(4, 12, 4), armorMat);
+    rArm.position.set(9, 20, 4);
+    rArm.rotation.x = -Math.PI / 2; // Pointing forward
+    group.add(rArm);
+
+    // Left Arm
+    const lArm = new THREE.Mesh(new THREE.BoxGeometry(4, 12, 4), armorMat);
+    lArm.position.set(-9, 20, 4);
+    lArm.rotation.x = -Math.PI / 2;
+    group.add(lArm);
+
+    // 5. Gun (Attached to Right Arm)
+    const gunGroup = new THREE.Group();
+    const gunBody = new THREE.Mesh(new THREE.BoxGeometry(3, 4, 12), suitMat);
+    const gunBarrel = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 4), glowMat);
+    gunBarrel.position.z = 7;
+    gunGroup.add(gunBody);
+    gunGroup.add(gunBarrel);
+    gunGroup.position.set(9, 20, 10); // End of arm
+    group.add(gunGroup);
+
+    // 6. Legs (We save these to animate them later)
+    const legGeo = new THREE.BoxGeometry(5, 14, 6);
+    
+    const leftLeg = new THREE.Mesh(legGeo, armorMat);
+    leftLeg.position.set(-4, 7, 0);
+    leftLeg.castShadow = true;
+    group.add(leftLeg);
+
+    const rightLeg = new THREE.Mesh(legGeo, armorMat);
+    rightLeg.position.set(4, 7, 0);
+    rightLeg.castShadow = true;
+    group.add(rightLeg);
+
+    // Store references for animation
+    group.userData = { leftLeg, rightLeg, headGroup };
+
+    return group;
+}
+
+// --- 3. NETWORK & STATE ---
 // @ts-ignore
 const socket = io({ transports: ['websocket', 'polling'] });
 
-let players = {}; // Server data
+let players = {};
 let bullets = [];
 let obstacles = [];
 let myId = null;
 
-// Store 3D Meshes here to update them
 const meshes = {
     players: {},
     bullets: [],
     obstacles: []
 };
 
-// Input State
+// Input
 const keys = { w: false, a: false, s: false, d: false };
 let mouseX = 0;
 let mouseY = 0;
 
-// Listeners
 document.addEventListener('keydown', (e) => { if (keys.hasOwnProperty(e.key)) keys[e.key] = true; });
 document.addEventListener('keyup', (e) => { if (keys.hasOwnProperty(e.key)) keys[e.key] = false; });
-document.addEventListener('mousemove', (e) => {
-    // We need 3D mouse position, but for now let's keep it simple relative to screen center
-    mouseX = e.clientX;
-    mouseY = e.clientY;
-});
+document.addEventListener('mousemove', (e) => { mouseX = e.clientX; mouseY = e.clientY; });
 document.addEventListener('mousedown', () => {
-    // Calculate aiming angle based on screen center (Third Person style)
     const angle = Math.atan2(mouseY - (window.innerHeight/2), mouseX - (window.innerWidth/2));
     socket.emit('shoot', angle);
 });
 
-// Sync
 socket.on('connect', () => { myId = socket.id; });
 socket.on('state', (state) => {
     players = state.players;
     bullets = state.bullets;
     
-    // Create Obstacles only once
+    // Create Obstacles (One time)
     if (meshes.obstacles.length === 0 && state.obstacles.length > 0) {
         state.obstacles.forEach(obs => {
-            // Server has x,y,w,h. We need 3D Box.
-            // Server X/Y is Top-Left. Three.js is Center.
-            const geometry = new THREE.BoxGeometry(obs.w, 50, obs.h);
-            const material = new THREE.MeshStandardMaterial({ color: 0x00ffff, emissive: 0x004444 });
+            const geometry = new THREE.BoxGeometry(obs.w, 60, obs.h);
+            // Neon Wall Material
+            const material = new THREE.MeshStandardMaterial({ 
+                color: 0x001133,
+                emissive: 0x00ffff,
+                emissiveIntensity: 0.2,
+                roughness: 0.2
+            });
             const mesh = new THREE.Mesh(geometry, material);
-            
-            mesh.position.set(obs.x + obs.w/2, 25, obs.y + obs.h/2);
+            mesh.position.set(obs.x + obs.w/2, 30, obs.y + obs.h/2);
             mesh.castShadow = true;
             mesh.receiveShadow = true;
-            
             scene.add(mesh);
             meshes.obstacles.push(mesh);
         });
     }
 });
 
-// 3. RENDER LOOP
+// --- 4. RENDER LOOP ---
 function animate() {
     requestAnimationFrame(animate);
 
-    // --- UPDATE PLAYERS ---
-    // 1. Remove disconnected players
+    // Update Players
     for (let id in meshes.players) {
         if (!players[id]) {
             scene.remove(meshes.players[id]);
@@ -100,62 +203,80 @@ function animate() {
         }
     }
 
-    // 2. Add/Update connected players
+    const now = Date.now();
+
     for (let id in players) {
         const p = players[id];
-        let mesh = meshes.players[id];
+        let group = meshes.players[id];
 
-        // Create if doesn't exist
-        if (!mesh) {
-            const geometry = new THREE.CapsuleGeometry(15, 30, 4, 8);
-            const material = new THREE.MeshStandardMaterial({ color: p.color });
-            mesh = new THREE.Mesh(geometry, material);
-            scene.add(mesh);
-            meshes.players[id] = mesh;
+        // If new player, create the SCIFI MODEL
+        if (!group) {
+            group = createSciFiSoldier(p.color);
+            scene.add(group);
+            meshes.players[id] = group;
         }
 
-        // Update Position (Map 2D X/Y to 3D X/Z)
-        // Lerp for smoothness (optional, using direct set for now)
-        mesh.position.x = p.x;
-        mesh.position.z = p.y;
-        mesh.position.y = 15; // Half height
+        // --- ANIMATION LOGIC ---
+        // 1. Move Group
+        group.position.x = p.x;
+        group.position.z = p.y;
         
-        // Rotate body to face aim
-        mesh.rotation.y = -p.angle; // Server angle might be inverted for 3D
+        // 2. Rotate Body
+        // Smooth rotation
+        const targetRot = -p.angle;
+        let diff = targetRot - group.rotation.y;
+        // Normalize angle to prevent spinning 360 unnecessarily
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        group.rotation.y += diff * 0.2;
+
+        // 3. Leg Walking Animation
+        // Check if player is moving by comparing current pos to last pos
+        const isMoving = (group.userData.lastX !== p.x || group.userData.lastZ !== p.y);
         
-        // Update Color if changed
-        mesh.material.color.set(p.color);
+        if (isMoving) {
+            const speed = 0.015;
+            const range = 0.5; // How far legs swing
+            group.userData.leftLeg.rotation.x = Math.sin(now * speed) * range;
+            group.userData.rightLeg.rotation.x = Math.cos(now * speed) * range;
+        } else {
+            // Reset to standing
+            group.userData.leftLeg.rotation.x = 0;
+            group.userData.rightLeg.rotation.x = 0;
+        }
+
+        // Save position for next frame check
+        group.userData.lastX = p.x;
+        group.userData.lastZ = p.y;
     }
 
-    // --- UPDATE BULLETS ---
-    // Clear old bullets from scene
+    // Update Bullets
     meshes.bullets.forEach(b => scene.remove(b));
     meshes.bullets = [];
 
-    // Create new bullets
     bullets.forEach(b => {
-        const geometry = new THREE.SphereGeometry(5);
+        // Glowing Energy Bullets
+        const geometry = new THREE.SphereGeometry(3);
         const material = new THREE.MeshBasicMaterial({ color: 0xff00ff });
         const mesh = new THREE.Mesh(geometry, material);
-        mesh.position.set(b.x, 15, b.y);
+        mesh.position.set(b.x, 20, b.y);
+        // Add a light to the bullet
+        const light = new THREE.PointLight(0xff00ff, 1, 50);
+        light.position.set(0,0,0);
+        mesh.add(light);
+        
         scene.add(mesh);
         meshes.bullets.push(mesh);
     });
 
-    // --- CAMERA FOLLOW ---
+    // Camera Follow
     if (myId && players[myId]) {
         const p = players[myId];
-        // "Fortnite-ish" Camera: Behind and above
-        const offsetHeight = 300; // How high up
-        const offsetDistance = 200; // How far back (isometric style)
-        
         camera.position.x = p.x;
-        camera.position.y = offsetHeight;
-        camera.position.z = p.y + offsetDistance;
+        camera.position.y = 400; // High up
+        camera.position.z = p.y + 250; // Angled back
         camera.lookAt(p.x, 0, p.y);
 
-        // Send Input
-        // Calculate angle from center of screen (where player is) to mouse
         const dx = mouseX - (window.innerWidth / 2);
         const dy = mouseY - (window.innerHeight / 2);
         const angle = Math.atan2(dy, dx);
@@ -166,7 +287,6 @@ function animate() {
     renderer.render(scene, camera);
 }
 
-// Handle Window Resize
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
