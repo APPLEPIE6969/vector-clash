@@ -1,4 +1,8 @@
-const socket = io();
+// FIX 1: Force websocket transport to fix Render connection issues
+const socket = io({
+    transports: ['websocket', 'polling']
+});
+
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
@@ -32,7 +36,11 @@ canvas.addEventListener('mousedown', () => {
 });
 
 // Sync
-socket.on('connect', () => { myId = socket.id; });
+socket.on('connect', () => { 
+    console.log("Connected to server with ID:", socket.id);
+    myId = socket.id; 
+});
+
 socket.on('state', (state) => {
     players = state.players;
     bullets = state.bullets;
@@ -44,6 +52,15 @@ function draw() {
     // 1. Clear Screen
     ctx.fillStyle = '#050505';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // FIX 2: Check if connected. If not, show "Loading..."
+    if (obstacles.length === 0) {
+        ctx.fillStyle = 'white';
+        ctx.font = '30px Arial';
+        ctx.fillText('Connecting to Server...', 250, 400);
+        requestAnimationFrame(draw);
+        return;
+    }
 
     // 2. Draw Obstacles (Neon Walls)
     ctx.fillStyle = '#222';
@@ -65,11 +82,10 @@ function draw() {
         ctx.arc(b.x, b.y, 5, 0, Math.PI * 2);
         ctx.fillStyle = '#ff00ff';
         ctx.fill();
-        // Bullet Trail
         ctx.shadowBlur = 10;
         ctx.shadowColor = '#ff00ff';
     });
-    ctx.shadowBlur = 0; // Reset
+    ctx.shadowBlur = 0;
 
     // 5. Draw Players
     for (let id in players) {
@@ -108,12 +124,11 @@ function drawPrediction(player) {
 
     ctx.beginPath();
     ctx.moveTo(x, y);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)'; // Faint line
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
     ctx.setLineDash([5, 5]);
 
     // Simulate 3 bounces
     for (let i = 0; i < 3; i++) {
-        // Raycast roughly 300 pixels ahead or until hit
         let dist = 0;
         const maxDist = 300;
         let hit = false;
@@ -123,11 +138,9 @@ function drawPrediction(player) {
             y += vy * 5;
             dist += 5;
 
-            // Check collision with obstacles locally for visual
+            // Check collision locally
             for (let obs of obstacles) {
                 if (x > obs.x && x < obs.x + obs.w && y > obs.y && y < obs.y + obs.h) {
-                    
-                    // Simple reflection logic for visual
                     const overlapX = (x - (obs.x + obs.w/2)) / (obs.w/2);
                     const overlapY = (y - (obs.y + obs.h/2)) / (obs.h/2);
                     
@@ -140,7 +153,6 @@ function drawPrediction(player) {
             }
             if (hit) break;
             
-            // Screen bounds
             if (x <= 0 || x >= 800) { vx *= -1; hit = true; break; }
             if (y <= 0 || y >= 800) { vy *= -1; hit = true; break; }
         }
