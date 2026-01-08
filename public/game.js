@@ -154,8 +154,11 @@ function animate() {
         group.position.x = p.x;
         group.position.z = p.y;
         
-        // Rotation Fix
-        group.rotation.y = -p.angle - Math.PI / 2;
+        // --- ROTATION FIX ---
+        // Changed from - Math.PI / 2 to + Math.PI / 2
+        // This flips it 180 degrees from the last version.
+        group.rotation.y = -p.angle + Math.PI / 2;
+        // --------------------
 
         const isMoving = (group.userData.lastX !== p.x || group.userData.lastZ !== p.y);
         if (isMoving) {
@@ -205,15 +208,10 @@ const fovSlider = document.getElementById('fovSlider');
 const fovValue = document.getElementById('fovValue');
 
 fovSlider.addEventListener('input', (e) => {
-    // 1. Get new value
     const newFov = parseInt(e.target.value);
-    
-    // 2. Update text
     fovValue.innerText = newFov;
-
-    // 3. Update Camera
     camera.fov = newFov;
-    camera.updateProjectionMatrix(); // Required by Three.js to apply changes
+    camera.updateProjectionMatrix();
 });
 
 window.addEventListener('resize', () => {
